@@ -1,233 +1,232 @@
+# Scenario 7: Vulnerable Road User Detection and Automatic Emergency Braking Simulation
 
-# Scénario 7 : Détection des usagers vulnérables de la route et simulation du freinage d'urgence automatique
+## 1. Project Overview
 
-## 1. Présentation du projet
+This project falls within the domain of computer vision applied to autonomous driving. It aims to detect Vulnerable Road Users (VRU) from a video stream and simulate the behavior of an Automatic Emergency Braking (AEB) system.
 
-Ce projet s'inscrit dans le domaine de la vision par ordinateur appliquée à la conduite autonome. Il vise à détecter les usagers vulnérables de la route (*Vulnerable Road Users — VRU*) à partir d'une vidéo, puis à simuler le comportement d'un système de freinage d'urgence automatique (*Automatic Emergency Braking — AEB*).
+The solution relies on the YOLOv8n (nano version) object detection model, combined with a geometric analysis of the vehicle's driving corridor and a decision-making logic based on timers (implementation of a simplified state machine).
 
-La solution repose sur le modèle de détection d'objets YOLOv8n (version nano), associé à une analyse géométrique du corridor de trajectoire du véhicule et à une logique décisionnelle fondée sur des temporisateurs (implémentation d'une machine à états simplifiée).
+The system analyzes successive frames from a video, identifies relevant objects, verifies their position relative to a predefined driving corridor, and updates the system state displayed on screen.
 
-Le système analyse les images successives d'une vidéo, identifie les objets pertinents, vérifie leur position par rapport à un corridor de trajectoire prédéfini et met à jour l'état du système affiché à l'écran.
+The objective is to implement an experimental approach combining object detection, spatial analysis, and decision-making in a simplified autonomous driving environment.
 
-L'objectif est de mettre en œuvre une approche expérimentale combinant détection d'objets, analyse spatiale et prise de décision dans un environnement simplifié de conduite autonome.
+## 2. Objectives
 
-## 2. Objectifs
+The main objectives of the project are as follows:
 
-Les principaux objectifs du projet sont les suivants :
+- Detect pedestrians and other object categories using the YOLOv8n model.
+- Localize detected objects in the frames using their bounding boxes.
+- Define a trapezoidal corridor approximately representing the vehicle's trajectory.
+- Determine whether monitored objects are located within the studied trajectory zone.
+- Trigger the emergency braking simulation when a pedestrian is detected within the corridor.
+- Trigger a warning when a sports ball is detected within the corridor.
+- Visualize detections, the corridor, and the system state during video processing.
 
-- Détecter les piétons et d'autres catégories d'objets à l'aide du modèle YOLOv8n.
-- Localiser les objets détectés dans les images à partir de leurs boîtes englobantes.
-- Définir un corridor trapézoïdal représentant approximativement la trajectoire du véhicule.
-- Déterminer si les objets surveillés se trouvent dans la zone de trajectoire étudiée.
-- Déclencher la simulation du freinage d'urgence lorsqu'un piéton est détecté dans le corridor.
-- Déclencher un avertissement lorsqu'une balle (*Sports ball*) est détectée dans le corridor.
-- Visualiser les détections, le corridor et l'état du système pendant le traitement vidéo.
+## 3. Main Features
 
-## 3. Fonctionnalités principales
+### 3.1. Object Detection
 
-### 3.1. Détection des objets
+The system uses YOLOv8n, via the Ultralytics library, to detect objects present in each frame.
 
-Le système utilise YOLOv8n, via la bibliothèque Ultralytics, pour détecter les objets présents dans chaque image.
+For each detection, the model provides:
 
-Pour chaque détection, le modèle fournit :
+- Bounding box coordinates (`box.xyxy`).
+- Detected class identifier (`box.cls`).
+- Confidence score associated with the prediction (`box.conf`).
 
-- Les coordonnées de la boîte englobante (`box.xyxy`).
-- L'identifiant de la classe détectée (`box.cls`).
-- Le score de confiance associé à la prédiction (`box.conf`).
+In this implementation, only class identifiers and bounding box coordinates are used by the decision-making logic.
 
-Dans cette implémentation, seuls les identifiants de classe et les coordonnées des boîtes sont exploités par la logique décisionnelle.
+### 3.2. Driving Corridor Analysis
 
-### 3.2. Analyse du corridor de trajectoire
-
-Un corridor de trajectoire est représenté par un polygone trapézoïdal défini à partir des dimensions de l'image (largeur `L`, hauteur `H`) :
+A driving corridor is represented by a trapezoidal polygon defined based on the frame dimensions (width `L`, height `H`):
 
 ```text
 (L * 0.12, H * 0.95), (L * 0.42, H * 0.55), (L * 0.58, H * 0.55), (L * 0.88, H * 0.95)
 ```
 
-Cette zone représente une approximation de l'espace situé devant le véhicule. Elle permet de distinguer les objets susceptibles d'interférer avec la trajectoire étudiée des objets détectés en dehors de cette zone.
+This zone represents an approximation of the space located in front of the vehicle. It allows distinguishing objects likely to interfere with the studied trajectory from objects detected outside this zone.
 
-La fonction OpenCV `cv2.pointPolygonTest` est utilisée pour déterminer si un point appartient au polygone (retour `>= 0` : point à l'intérieur ou sur le bord).
+The OpenCV function `cv2.pointPolygonTest` is used to determine whether a point belongs to the polygon (return `>= 0`: point inside or on the edge).
 
-Dans cette approche, le point inférieur central de la boîte englobante `(x1 + x2) / 2, y2` est utilisé pour évaluer la position de l'objet par rapport au corridor.
+In this approach, the bottom-center point of the bounding box `(x1 + x2) / 2, y2` is used to evaluate the object's position relative to the corridor.
 
-### 3.3. Logique décisionnelle (machine à états par temporisateurs)
+### 3.3. Decision Logic (Timer-Based State Machine)
 
-Le système repose sur deux temporisateurs, `brake_timer` et `warning_timer`, décrémentés à chaque image, associés à une durée de maintien de `COOLDOWN_FRAMES = 12` images. Trois états en résultent :
+The system relies on two timers, `brake_timer` and `warning_timer`, decremented at each frame, associated with a hold duration of `COOLDOWN_FRAMES = 12` frames. Three states result:
 
-- **CRUISING** : les deux temporisateurs sont à zéro. État de circulation normale, aucune menace dans le corridor.
-- **WARNING** : `warning_timer > 0`. Activé lorsqu'une balle (*Sports ball*) est détectée dans le corridor **et** qu'aucun freinage n'est en cours (`brake_timer == 0`).
-- **EMERGENCY_BRAKING** : `brake_timer > 0`. Activé dès qu'un piéton est détecté dans le corridor.
+- **CRUISING**: both timers are at zero. Normal driving state, no threat in the corridor.
+- **WARNING**: `warning_timer > 0`. Activated when a sports ball is detected in the corridor **and** no braking is in progress (`brake_timer == 0`).
+- **EMERGENCY_BRAKING**: `brake_timer > 0`. Activated as soon as a pedestrian is detected in the corridor.
 
-Règles de transition exactes appliquées à chaque image :
+Exact transition rules applied at each frame:
 
-1. Si un piéton est détecté dans le corridor : `brake_timer = 12` et `warning_timer = 0` (le freinage prime sur l'avertissement).
-2. Sinon, si une balle est détectée dans le corridor et que `brake_timer == 0` : `warning_timer = 12`.
-3. Sinon : les deux temporisateurs sont décrémentés de 1 ; lorsque les deux atteignent zéro, le système revient à l'état **CRUISING**.
+1. If a pedestrian is detected in the corridor: `brake_timer = 12` and `warning_timer = 0` (braking takes precedence over warning).
+2. Otherwise, if a ball is detected in the corridor and `brake_timer == 0`: `warning_timer = 12`.
+3. Otherwise: both timers are decremented by 1; when both reach zero, the system returns to the **CRUISING** state.
 
-L'état est priorisé dans l'ordre : piéton > balle > absence de menace.
+State priority order: pedestrian > ball > no threat.
 
-### 3.4. Visualisation des résultats
+### 3.4. Results Visualization
 
-Le traitement produit, image par image, une visualisation comprenant :
+The processing produces, frame by frame, a visualization including:
 
-- Le corridor de trajectoire : remplissage cyan semi-transparent (opacité ≈ 12 %) et contour cyan.
-- Les objets surveillés situés **hors** du corridor : boîte englobante verte fine.
-- Le piéton détecté **dans** le corridor : boîte englobante rouge épaisse et point rouge sur le point inférieur central.
-- La balle détectée **dans** le corridor : boîte englobante orange.
-- Un bandeau d'état en bas de l'image : rouge (freinage d'urgence), orange (avertissement) ou gris foncé avec texte vert (circulation normale).
+- The driving corridor: semi-transparent cyan fill (opacity ≈ 12%) and cyan outline.
+- Monitored objects located **outside** the corridor: thin green bounding box.
+- Pedestrian detected **inside** the corridor: thick red bounding box and red dot on the bottom-center point.
+- Ball detected **inside** the corridor: orange bounding box.
+- A status bar at the bottom of the frame: red (emergency braking), orange (warning), or dark gray with green text (normal cruising).
 
-Les images sont converties de BGR (OpenCV) vers RGB puis affichées directement dans le notebook via Matplotlib, avec rafraîchissement de la cellule à chaque image (`clear_output`).
+Frames are converted from BGR (OpenCV) to RGB and then displayed directly in the notebook via Matplotlib, with cell refresh at each frame (`clear_output`).
 
-Cette implémentation n'affiche ni les étiquettes de classes, ni les scores de confiance, ni de télémétrie numérique.
+This implementation does not display class labels, confidence scores, or numerical telemetry.
 
-## 4. Architecture technique
+## 4. Technical Architecture
 
-Le pipeline de traitement est organisé en plusieurs étapes successives.
+The processing pipeline is organized into several successive steps.
 
-### Étape 1 : Acquisition des images
+### Step 1: Frame Acquisition
 
-Lecture de la vidéo `source/test_driving_video.mp4` via `cv2.VideoCapture`, puis extraction des dimensions de l'image (`CAP_PROP_FRAME_WIDTH`, `CAP_PROP_FRAME_HEIGHT`).
+Reading the video `source/test_driving_video.mp4` via `cv2.VideoCapture`, then extracting frame dimensions (`CAP_PROP_FRAME_WIDTH`, `CAP_PROP_FRAME_HEIGHT`).
 
-### Étape 2 : Définition du corridor
+### Step 2: Corridor Definition
 
-Un polygone trapézoïdal représentant la zone de trajectoire est calculé à partir des dimensions de l'image.
+A trapezoidal polygon representing the trajectory zone is calculated based on frame dimensions.
 
-### Étape 3 : Détection des objets
+### Step 3: Object Detection
 
-Le modèle YOLOv8n analyse l'image et retourne les détections disponibles, notamment les boîtes englobantes et les classes.
+The YOLOv8n model analyzes the frame and returns available detections, including bounding boxes and classes.
 
-### Étape 4 : Évaluation spatiale
+### Step 4: Spatial Evaluation
 
-Pour chaque objet surveillé, le point inférieur central de sa boîte englobante est comparé au corridor à l'aide de `cv2.pointPolygonTest`.
+For each monitored object, the bottom-center point of its bounding box is compared to the corridor using `cv2.pointPolygonTest`.
 
-### Étape 5 : Prise de décision
+### Step 5: Decision Making
 
-Des indicateurs `pedestrian_in_lane` et `ball_in_lane` sont positionnés selon les détections dans le corridor.
+Indicators `pedestrian_in_lane` and `ball_in_lane` are set based on detections within the corridor.
 
-### Étape 6 : Gestion des temporisateurs
+### Step 6: Timer Management
 
-Les variables `brake_timer` et `warning_timer` sont mises à jour selon les règles de transition définies en 3.3.
+Variables `brake_timer` and `warning_timer` are updated according to the transition rules defined in 3.3.
 
-### Étape 7 : Affichage des résultats
+### Step 7: Results Display
 
-Les dessins OpenCV (corridor, boîtes, bandeau d'état) sont appliqués sur l'image, puis le rendu est affiché en ligne dans le notebook via Matplotlib.
+OpenCV drawings (corridor, boxes, status bar) are applied to the frame, then the rendering is displayed inline in the notebook via Matplotlib.
 
-## 5. Technologies utilisées
+## 5. Technologies Used
 
-| Technologie | Utilisation |
+| Technology | Usage |
 |---|---|
-| Python | Langage principal du projet |
-| Jupyter Notebook | Développement et exécution interactive du pipeline |
-| OpenCV | Lecture vidéo, traitement des images et analyse géométrique (`pointPolygonTest`, `fillPoly`, `addWeighted`) |
-| NumPy | Manipulation des données numériques (polygone, boîtes) |
-| Ultralytics YOLOv8n | Détection d'objets |
-| Matplotlib | Rendu des images dans le notebook |
-| IPython.display | Rafraîchissement de l'affichage inline (`clear_output`) |
-| Machine à états (temporisateurs) | Gestion de la logique décisionnelle |
+| Python | Main project language |
+| Jupyter Notebook | Development and interactive execution of the pipeline |
+| OpenCV | Video reading, image processing, and geometric analysis (`pointPolygonTest`, `fillPoly`, `addWeighted`) |
+| NumPy | Numerical data manipulation (polygon, boxes) |
+| Ultralytics YOLOv8n | Object detection |
+| Matplotlib | Frame rendering in the notebook |
+| IPython.display | Inline display refresh (`clear_output`) |
+| State Machine (Timers) | Decision logic management |
 
-## 6. Classes d'objets surveillées
+## 6. Monitored Object Classes
 
-Le projet exploite les classes suivantes du jeu de données COCO prises en charge par le modèle YOLOv8n.
+The project uses the following classes from the COCO dataset supported by the YOLOv8n model.
 
-| Identifiant COCO | Classe | Rôle dans l'implémentation |
+| COCO ID | Class | Role in Implementation |
 |---|---|---|
-| 0 | Person | Déclenche la simulation du freinage d'urgence si présent dans le corridor |
-| 32 | Sports ball | Déclenche l'avertissement si présent dans le corridor (hors freinage actif) |
-| 1 | Bicycle | Surveillée (affichée en vert hors corridor), sans effet décisionnel |
-| 3 | Motorcycle | Surveillée (affichée en vert hors corridor), sans effet décisionnel |
-| 15 | Cat | Surveillée (affichée en vert hors corridor), sans effet décisionnel |
-| 16 | Dog | Surveillée (affichée en vert hors corridor), sans effet décisionnel |
-| 17 | Horse | Surveillée (affichée en vert hors corridor), sans effet décisionnel |
-| 18 | Sheep | Surveillée (affichée en vert hors corridor), sans effet décisionnel |
-| 21 | Bear | Surveillée (affichée en vert hors corridor), sans effet décisionnel |
-| 22 | Zebra | Surveillée (affichée en vert hors corridor), sans effet décisionnel |
+| 0 | Person | Triggers emergency braking simulation if present in the corridor |
+| 32 | Sports ball | Triggers warning if present in the corridor (when no braking is active) |
+| 1 | Bicycle | Monitored (displayed in green outside corridor), no decision effect |
+| 3 | Motorcycle | Monitored (displayed in green outside corridor), no decision effect |
+| 15 | Cat | Monitored (displayed in green outside corridor), no decision effect |
+| 16 | Dog | Monitored (displayed in green outside corridor), no decision effect |
+| 17 | Horse | Monitored (displayed in green outside corridor), no decision effect |
+| 18 | Sheep | Monitored (displayed in green outside corridor), no decision effect |
+| 21 | Bear | Monitored (displayed in green outside corridor), no decision effect |
+| 22 | Zebra | Monitored (displayed in green outside corridor), no decision effect |
 
-Seules les classes *Person* et *Sports ball* déclenchent des actions de sécurité. Les autres classes listées sont détectées et dessinées lorsqu'elles se trouvent hors du corridor, mais ne modifient pas l'état du système. Les classes COCO non listées (voitures, camions, etc.) sont ignorées par la logique décisionnelle.
+Only the *Person* and *Sports ball* classes trigger safety actions. The other listed classes are detected and drawn when located outside the corridor, but do not modify the system state. COCO classes not listed (cars, trucks, etc.) are ignored by the decision logic.
 
-Les catégories COCO présentées ici constituent une sélection de classes détectables et non une définition exhaustive des usagers vulnérables de la route.
+The COCO categories presented here constitute a selection of detectable classes and not an exhaustive definition of vulnerable road users.
 
-## 7. Prérequis
+## 7. Prerequisites
 
-Pour exécuter le projet, les éléments suivants sont nécessaires :
+To run the project, the following elements are required:
 
-- Python 3.8 ou une version ultérieure, sous réserve de compatibilité avec les versions installées des bibliothèques.
-- pip pour l'installation des dépendances.
-- Jupyter Notebook ou JupyterLab.
-- Les bibliothèques Python indiquées dans le fichier `requirements.txt`.
-- Les poids du modèle `yolov8n.pt` : téléchargés automatiquement par Ultralytics au premier lancement (connexion Internet requise), ou à placer manuellement dans le répertoire de travail.
-- Une vidéo de démonstration disponible à l'emplacement `source/test_driving_video.mp4`, ou l'adaptation du chemin dans le code.
+- Python 3.8 or later, subject to compatibility with installed library versions.
+- pip for dependency installation.
+- Jupyter Notebook or JupyterLab.
+- Python libraries listed in the `requirements.txt` file.
+- Model weights `yolov8n.pt`: downloaded automatically by Ultralytics on first launch (Internet connection required), or to be placed manually in the working directory.
+- A demonstration video available at `source/test_driving_video.mp4`, or path adaptation in the code.
 
-Les ressources nécessaires doivent être disponibles aux chemins attendus par le notebook.
+Required resources must be available at the paths expected by the notebook.
 
-## 8. Installation et exécution
+## 8. Installation and Execution
 
-### 8.1. Récupération du projet
+### 8.1. Project Retrieval
 
-Cloner le dépôt Git :
+Clone the Git repository:
 
 ```bash
-git clone <URL_DU_DEPOT>
+git clone <REPOSITORY_URL>
 ```
 
-Accéder au dossier du projet :
+Navigate to the project folder:
 
 ```bash
 cd scenario_7_vru_detection
 ```
 
-Remplacer `<URL_DU_DEPOT>` par l'adresse réelle du dépôt GitHub.
+Replace `<REPOSITORY_URL>` with the actual GitHub repository address.
 
-### 8.2. Installation des dépendances
+### 8.2. Dependency Installation
 
-Installer les dépendances définies dans le fichier `requirements.txt` :
+Install dependencies defined in the `requirements.txt` file:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-Si nécessaire, vérifier que Jupyter est installé :
+If necessary, verify that Jupyter is installed:
 
 ```bash
 pip install notebook
 ```
 
-### 8.3. Lancement du notebook
+### 8.3. Notebook Launch
 
-Démarrer Jupyter Notebook :
+Start Jupyter Notebook:
 
 ```bash
 jupyter notebook
 ```
 
-Dans l'interface qui s'ouvre, sélectionner le fichier :
+In the interface that opens, select the file:
 
 `scenario_7_vru_detection.ipynb`
 
-Il est également possible d'utiliser JupyterLab :
+JupyterLab can also be used:
 
 ```bash
 jupyter lab
 ```
 
-### 8.4. Exécution du pipeline
+### 8.4. Pipeline Execution
 
-Ouvrir le notebook et exécuter les cellules dans l'ordre prévu.
+Open the notebook and execute cells in the intended order.
 
-Avant l'exécution, vérifier les éléments suivants :
+Before execution, verify the following elements:
 
-- La disponibilité des poids `yolov8n.pt` (téléchargement automatique au premier lancement sinon).
-- La présence de la vidéo à l'emplacement `source/test_driving_video.mp4` (ou l'adaptation du chemin dans le code).
-- L'installation correcte des dépendances.
-- La compatibilité de l'environnement Python avec les bibliothèques utilisées.
+- Availability of `yolov8n.pt` weights (automatic download on first launch otherwise).
+- Presence of the video at `source/test_driving_video.mp4` (or path adaptation in the code).
+- Correct installation of dependencies.
+- Python environment compatibility with the libraries used.
 
-Le traitement s'exécute jusqu'à la fin de la vidéo ou jusqu'à l'interruption manuelle du noyau (bouton *Stop* / *Kernel → Interrupt*). Les ressources vidéo sont libérées à la fin de l'exécution.
+Processing runs until the end of the video or until manual kernel interruption (Stop button / Kernel → Interrupt). Video resources are released at the end of execution.
 
-Le déroulement exact dépend de l'organisation et du contenu du notebook.
+The exact workflow depends on the organization and content of the notebook.
 
-## 9. Structure du projet
+## 9. Project Structure
 
-La structure actuelle du dépôt est la suivante :
+The current repository structure is as follows:
 
 ```text
 scenario_7_vru_detection/
@@ -240,80 +239,117 @@ scenario_7_vru_detection/
 └── scenario_7_vru_detection.ipynb
 ```
 
-Description des éléments :
+Element descriptions:
 
-- `assets/` : dossier contenant les ressources du projet.
-- `models/` : dossier destiné aux fichiers de modèles et aux poids utilisés par le système ; le fichier `yolov8n.pt` est téléchargé automatiquement par Ultralytics dans le répertoire de travail au premier lancement.
-- `source/` : dossier contenant la vidéo de démonstration utilisée par le notebook.
-- `README.md` : documentation du projet.
-- `requirements.txt` : liste des dépendances Python.
-- `scenario_7_vru_detection.ipynb` : notebook Jupyter contenant le code, les étapes de traitement et les visualisations du projet.
+- `assets/`: folder containing project resources.
+- `models/`: folder intended for model files and weights used by the system; the `yolov8n.pt` file is automatically downloaded by Ultralytics in the working directory on first launch.
+- `source/`: folder containing the demonstration video used by the notebook.
+- `README.md`: project documentation.
+- `requirements.txt`: Python dependency list.
+- `scenario_7_vru_detection.ipynb`: Jupyter notebook containing the code, processing steps, and project visualizations.
 
-Le contenu détaillé des dossiers `assets/`, `models/` et `source/` dépend des fichiers présents dans le dépôt.
+Detailed content of the `assets/`, `models/`, and `source/` folders depends on files present in the repository.
 
-## 10. Limites et perspectives d'amélioration
+## 10. Limitations and Improvement Perspectives
 
-### 10.1. Estimation de la trajectoire
+### 10.1. Trajectory Estimation
 
-Le corridor trapézoïdal constitue une approximation géométrique simplifiée, fixée par des proportions constantes de l'image. Il ne tient pas nécessairement compte de la calibration de la caméra, de la courbure de la route, de l'angle de braquage ou des mouvements du véhicule.
+The trapezoidal corridor constitutes a simplified geometric approximation, fixed by constant proportions of the frame. It does not necessarily account for camera calibration, road curvature, steering angle, or vehicle movements.
 
-Une amélioration possible consisterait à intégrer la détection des voies, la calibration de la caméra et une estimation plus précise de la trajectoire.
+A possible improvement would be to integrate lane detection, camera calibration, and more accurate trajectory estimation.
 
-### 10.2. Gestion des temporisateurs
+### 10.2. Timer Management
 
-La logique repose sur un nombre d'images (`COOLDOWN_FRAMES = 12`) et dépend donc de la fréquence d'images effective de la vidéo.
+The logic relies on a number of frames (`COOLDOWN_FRAMES = 12`) and therefore depends on the effective frame rate of the video.
 
-L'utilisation de temps écoulé réel permettrait de rendre la gestion des temporisateurs moins dépendante du nombre d'images traitées par seconde.
+Using real elapsed time would make timer management less dependent on the number of frames processed per second.
 
-### 10.3. Analyse spatiale
+### 10.3. Spatial Analysis
 
-Le point inférieur central d'une boîte englobante constitue une approximation de la position d'un objet. Cette méthode ne représente pas entièrement sa forme, son mouvement ou sa trajectoire future.
+The bottom-center point of a bounding box constitutes an approximation of an object's position. This method does not fully represent its shape, movement, or future trajectory.
 
-L'intégration d'un suivi multi-objets et d'une estimation du mouvement pourrait améliorer l'analyse des risques.
+Integration of multi-object tracking and motion estimation could improve risk analysis.
 
-### 10.4. Prédiction des collisions
+### 10.4. Collision Prediction
 
-Le système repose sur des règles géométriques et décisionnelles simplifiées. Une extension possible consisterait à estimer le temps avant collision, ou *Time-to-Collision* (TTC), à partir de la distance et de la vitesse relative des objets.
+The system relies on simplified geometric and decision rules. A possible extension would be to estimate time-to-collision (TTC) based on distance and relative speed of objects.
 
-Cette évolution nécessiterait des informations de mouvement et de distance suffisamment fiables.
+This evolution would require sufficiently reliable motion and distance information.
 
-### 10.5. Évaluation des performances
+### 10.5. Performance Evaluation
 
-Des tests complémentaires permettraient d'évaluer le comportement du système dans différentes conditions : éclairage variable, occultations, objets éloignés et scènes complexes.
+Additional tests would allow evaluating system behavior under various conditions: variable lighting, occlusions, distant objects, and complex scenes.
 
-Les métriques envisageables comprennent la précision, le rappel, le taux de fausses détections, le taux d'objets manqués et le temps moyen de traitement d'une image.
+Envisaged metrics include precision, recall, false detection rate, missed object rate, and average frame processing time.
 
-### 10.6. Optimisation
+### 10.6. Optimization
 
-Selon les résultats obtenus, plusieurs pistes pourraient être étudiées :
+Based on results obtained, several avenues could be explored:
 
-- L'accélération matérielle de l'inférence.
-- L'optimisation du traitement vidéo (rendu Matplotlib image par image moins performant qu'une sortie vidéo native).
-- L'export d'une vidéo annotée en plus de l'affichage inline.
-- L'amélioration du suivi temporel des objets.
-- L'adaptation du corridor à la trajectoire estimée du véhicule.
-- L'intégration de méthodes de prédiction des risques.
+- Hardware acceleration of inference.
+- Video processing optimization (Matplotlib frame-by-frame rendering less performant than native video output).
+- Export of annotated video in addition to inline display.
+- Improvement of temporal object tracking.
+- Corridor adaptation to estimated vehicle trajectory.
+- Integration of risk prediction methods.
 
-### 10.7. Considérations de sécurité
+### 10.7. Safety Considerations
 
-Ce projet est un prototype expérimental de vision par ordinateur et de simulation de freinage d'urgence. Il ne constitue pas un système de freinage certifié et ne doit pas être utilisé pour commander directement un véhicule réel.
+This project is an experimental prototype of computer vision and emergency braking simulation. It does not constitute a certified braking system and must not be used to directly command a real vehicle.
 
-Une application réelle nécessiterait notamment une validation approfondie, des mécanismes de sécurité, une estimation fiable des distances et des vitesses, ainsi que le respect des normes automobiles applicables.
+A real-world application would notably require thorough validation, safety mechanisms, reliable distance and speed estimation, and compliance with applicable automotive standards.
 
 ## 11. Conclusion
 
-Ce projet illustre l'intégration de la détection d'objets, de l'analyse géométrique et d'une logique décisionnelle fondée sur des temporisateurs dans un scénario simplifié de conduite autonome.
+This project illustrates the integration of object detection, geometric analysis, and timer-based decision logic in a simplified autonomous driving scenario.
 
-L'association de YOLOv8n, d'un corridor de trajectoire et de règles de gestion des états permet d'étudier comment les informations visuelles peuvent contribuer à une première détection des situations potentiellement dangereuses.
+The combination of YOLOv8n, a driving corridor, and state management rules allows studying how visual information can contribute to initial detection of potentially dangerous situations.
 
-Cette architecture fournit une base expérimentale pour approfondir des sujets tels que le suivi des objets, la prédiction des collisions et l'amélioration des systèmes de perception pour la conduite autonome.
+This architecture provides an experimental foundation for further exploration of topics such as object tracking, collision prediction, and improvement of perception systems for autonomous driving.
 
-## 12. Auteur
+## 12. Author
 
-**Mohammed Boujaada**
+<div align="center">
 
-Étudiant en Master Intelligence Artificielle et Technologies Émergentes  
-Faculté des Sciences Appliquées de Nador (FSAN), Maroc
+<table>
+<tr>
+<td align="center">
+<a href="https://github.com/mohammed-boujaada">
+<img src="https://github.com/mohammed-boujaada.png" width="120px;" alt="Mohammed Boujaada"/>
+<br/>
+<sub><b>Mohammed Boujaada</b></sub>
+</a>
+<br/>
+MIATE Master's — FSA Nador
+<br/>
+<a href="https://github.com/mohammed-boujaada">
+<img src="https://img.shields.io/badge/GitHub-@mohammed--boujaada-black?logo=github"/>
+</a>
+<a href="https://www.linkedin.com/in/mohammed-boujaada-229a3333a/">
+<img src="https://img.shields.io/badge/LinkedIn-Boujaada%20Mohammed-blue?logo=linkedin"/>
+</a>
+</td>
+</tr>
+</table>
 
-- LinkedIn : https://www.linkedin.com/in/mohammed-boujaada-229a3333a/
-- GitHub : https://github.com/mohammed-boujaada
+</div>
+
+**Institution**: FSA Nador — Master's in Artificial Intelligence & Emerging Technologies  
+**Module**: Computer Vision  
+**Academic Year**: 2025 - 2026
+
+---
+
+## License
+
+This project is provided **as is** strictly for educational and academic purposes.  
+Free to use, modify, and distribute within non-commercial, academic contexts.
+
+---
+
+## Acknowledgments
+
+- **Ultralytics** — YOLOv8 framework for object detection
+- **OpenCV** — Computer vision library
+- **FSA Nador** — Academic supervision and foundational project requirements
+- All contributors and peer reviewers
